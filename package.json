@@ -1,4 +1,24 @@
 {
+  "name": "forex-bot",
+  "version": "1.0.0",
+  "description": "Autonomous Forex Trading Agent with AI-powered analysis and execution",
+  "main": "dist/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "forex",
+    "trading",
+    "ai-agent",
+    "openai",
+    "gemini"
+  ],
+  "license": "MIT",
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
@@ -12,5 +32,8 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "zod": "^3.25.40"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
