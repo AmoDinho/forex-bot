@@ -5,7 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
     container_name: forex-bot
     restart: unless-stopped
     ports:
@@ -33,7 +32,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    # Enable access to host network for Chrome DevTools Protocol
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     logging:
@@ -47,7 +45,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder
     container_name: forex-bot-dev
     profiles:
       - dev

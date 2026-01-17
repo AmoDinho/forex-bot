@@ -7,7 +7,7 @@ import {
   createAnalystAgent,
   createExecutorAgent,
   closeExecutorAgent,
-} from './agents/index.js';
+} from './agents';
 import cors from 'cors';
 
 const app = express();

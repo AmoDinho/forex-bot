@@ -1,30 +1,10 @@
 # ForexAI Trading Agent Dockerfile
-# Multi-stage build for optimized production image
+# Uses tsx for running TypeScript directly
 
 # ============================================
-# Stage 1: Builder
+# Stage 1: Production
 # ============================================
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Copy package files for dependency installation
-COPY package.json yarn.lock ./
-
-# Install all dependencies (including devDependencies for build)
-RUN yarn install --frozen-lockfile
-
-# Copy source code and config files
-COPY tsconfig.json ./
-COPY src ./src
-
-# Build TypeScript
-RUN yarn build
-
-# ============================================
-# Stage 2: Production
-# ============================================
-FROM node:20-alpine AS production
+FROM node:20-alpine
 
 # Add labels for container metadata
 LABEL org.opencontainers.image.title="ForexAI Trading Agent"
@@ -40,12 +20,13 @@ WORKDIR /app
 # Copy package files
 COPY package.json yarn.lock ./
 
-# Install production dependencies only
-RUN yarn install --frozen-lockfile --production && \
+# Install dependencies
+RUN yarn install --frozen-lockfile && \
     yarn cache clean
 
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
+# Copy source code
+COPY tsconfig.json ./
+COPY src ./src
 
 # Set ownership to non-root user
 RUN chown -R forexbot:nodejs /app
@@ -64,5 +45,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 ENV NODE_ENV=production
 ENV PORT=8080
 
-# Start the application
-CMD ["node", "dist/main.js"]
+# Start the application using tsx
+CMD ["yarn", "start"]
