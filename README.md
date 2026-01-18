@@ -86,6 +86,12 @@ GET /ping
 
 Returns the health status of the agent system.
 
+**cURL Example:**
+
+```bash
+curl http://localhost:8080/ping
+```
+
 **Response:**
 
 ```json
@@ -117,6 +123,30 @@ Content-Type: application/json
 }
 ```
 
+**cURL Example:**
+
+```bash
+# Basic invocation (use -N to disable buffering for SSE)
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Analyze EUR/USD", "sessionId": "session-1"}'
+
+# Ask for market analysis
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is the current trend for GBP/USD?", "sessionId": "session-1"}'
+
+# Request trading recommendation
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Should I buy or sell USD/JPY based on current conditions?", "sessionId": "session-1"}'
+
+# Continue conversation (same sessionId maintains context)
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What are the key support levels?", "sessionId": "session-1"}'
+```
+
 **Response:** Server-Sent Events (SSE) stream
 
 ```
@@ -133,6 +163,16 @@ data: {"type":"done"}
 
 ```bash
 GET /history?sessionId=user-session-123
+```
+
+**cURL Example:**
+
+```bash
+# Get history for a specific session
+curl "http://localhost:8080/history?sessionId=session-1"
+
+# Pretty print with jq
+curl -s "http://localhost:8080/history?sessionId=session-1" | jq
 ```
 
 **Response:**
@@ -166,21 +206,57 @@ DELETE /history?sessionId=user-session-123
 DELETE /history
 ```
 
-## Usage Examples
-
-### Using cURL
+**cURL Example:**
 
 ```bash
-# Check health
+# Clear history for a specific session
+curl -X DELETE "http://localhost:8080/history?sessionId=session-1"
+
+# Clear all conversation history
+curl -X DELETE http://localhost:8080/history
+```
+
+**Response:**
+
+```json
+{
+  "message": "Conversation history cleared for session session-1"
+}
+```
+
+## Usage Examples
+
+### Complete cURL Workflow
+
+```bash
+# 1. Check if the server is healthy
 curl http://localhost:8080/ping
 
-# Send a message (SSE stream)
+# 2. Start a new conversation session
 curl -N -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
-  -d '{"message": "What is the current market sentiment for GBP/USD?", "sessionId": "test-1"}'
+  -d '{"message": "Analyze the EUR/USD pair", "sessionId": "trading-session-001"}'
 
-# Get conversation history
-curl "http://localhost:8080/history?sessionId=test-1"
+# 3. Follow up question (maintains conversation context)
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What entry price would you recommend?", "sessionId": "trading-session-001"}'
+
+# 4. Ask about risk management
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Where should I place my stop loss?", "sessionId": "trading-session-001"}'
+
+# 5. Review the conversation history
+curl -s "http://localhost:8080/history?sessionId=trading-session-001" | jq
+
+# 6. Start a fresh session for a different pair
+curl -N -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is your analysis for GBP/JPY?", "sessionId": "trading-session-002"}'
+
+# 7. Clean up old session
+curl -X DELETE "http://localhost:8080/history?sessionId=trading-session-001"
 ```
 
 ### Using JavaScript/TypeScript
