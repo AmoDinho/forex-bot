@@ -17,7 +17,7 @@ const sessionService = new InMemorySessionService();
 const APP_NAME = 'ForexBot';
 
 // Helper to run an agent and get the final text response
-async function runAgent(agent: any, input: string, sessionId: string) {
+async function runAgent(agent: any, input: string, sessionId: string, stateDelta?: Record<string, any>) {
   const runner = new Runner({
     appName: APP_NAME,
     agent,
@@ -42,7 +42,8 @@ async function runAgent(agent: any, input: string, sessionId: string) {
   const events = runner.runAsync({
     userId: 'default-user',
     sessionId: sessionId,
-    newMessage: { parts: [{ text: input }] }
+    newMessage: { parts: [{ text: input }] },
+    stateDelta
   });
   
   let finalOutput = '';
@@ -91,7 +92,11 @@ app.post('/plan', async (req: Request, res: Response) => {
     console.log('🚀 Starting Daily Planner sequence...');
     // We pass a structured input string that the SequentialAgent's first sub-agent can parse
     const input = JSON.stringify({ strategy_pdf_text, broker_url });
-    const result = await runAgent(dailyPlannerAgent, input, sessionId);
+    const result = await runAgent(dailyPlannerAgent, input, sessionId, {
+      strategy_pdf_text,
+      broker_url,
+      morning_chart_image: 'morning_chart.png' // Provide a default if not set yet
+    });
 
     res.json({
       status: 'success',
