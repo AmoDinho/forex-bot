@@ -18,5 +18,6 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
+  "verbatimModuleSyntax": false,
   "exclude": ["node_modules", "dist"]
 }

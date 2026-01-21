@@ -19,6 +19,7 @@ const APP_NAME = 'ForexBot';
 // Helper to run an agent and get the final text response
 async function runAgent(agent: any, input: string, sessionId: string, stateDelta?: Record<string, any>) {
   const runner = new Runner({
+    
     appName: APP_NAME,
     agent,
     sessionService

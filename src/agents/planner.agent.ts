@@ -1,5 +1,6 @@
 import { LlmAgent, SequentialAgent, MCPToolset } from '@google/adk';
 import { dbWriterTool } from '../tools/forex.tools';
+import { z } from 'zod';
 
 /**
  * Stage 1: The Chart Scraper (Eyes)
@@ -17,6 +18,7 @@ const chartCaptureAgent = new LlmAgent({
   name: 'ChartScraper',
   model: 'gemini-1.5-flash',
   tools: [playwrightToolset],
+  
   instruction: `
     Your goal is to capture a high-timeframe screenshot of the market chart.
     
@@ -49,16 +51,7 @@ const strategyAnalystAgent = new LlmAgent({
     - Determine Market Bias (BULLISH, BEARISH, or NEUTRAL).
     - Identify 3 Key Support/Resistance levels from the chart.
     - Summarize the reasoning behind your bias and levels.
-    
-    OUTPUT:
-    Return a structured JSON object representing the plan:
-    {
-      "bias": "BULLISH" | "BEARISH" | "NEUTRAL",
-      "levels": [number, number, number],
-      "reasoning": "string"
-    }
   `,
-  outputKey: 'daily_plan_json',
 });
 
 /**
@@ -70,8 +63,8 @@ const dbPersisterAgent = new LlmAgent({
   model: 'gemini-1.5-flash',
   tools: [dbWriterTool],
   instruction: `
-    Extract the bias, levels, and reasoning from the {{daily_plan_json}} object.
-    Call the save_daily_plan tool to persist this data to the database.
+    You will receive a JSON object containing a trading plan (bias, levels, and reasoning).
+    Extract this data and call the save_daily_plan tool to persist it to the database.
     Report the status of the save operation.
   `,
 });
@@ -83,6 +76,7 @@ const dbPersisterAgent = new LlmAgent({
 export const dailyPlannerAgent = new SequentialAgent({
   name: 'DailyPlanner',
   description: 'Strict linear sequence to establish daily trading bias.',
+
   subAgents: [
     chartCaptureAgent,
     strategyAnalystAgent,
