@@ -1,403 +1,166 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
-import { OpenAI } from 'openai';
-import { run, setDefaultOpenAIKey, withTrace, Tool ,setOpenAIAPI, setDefaultOpenAIClient} from '@openai/agents';
-import { GoogleAuth } from 'google-auth-library';
-import {
-  orchestratorAgent,
-  synthesizerAgent,
-  createAnalystAgent,
-  createExecutorAgent,
-  closeExecutorAgent,
-} from './agents';
+import { dailyPlannerAgent } from './agents/planner.agent';
+import { analystAgent } from './agents/analyst.agent';
+import { executorAgent, closeExecutorAgent } from './agents/executor.agent';
 import cors from 'cors';
+import { Runner, stringifyContent, InMemorySessionService } from '@google/adk';
 
 const app = express();
 const port = parseInt(process.env.PORT || '8090', 10);
 
-// Add JSON body parsing middleware
 app.use(cors());
 app.use(express.json());
 
-// Configure OpenAI SDK to use Gemini via compatibility layer
-const configureGeminiClient = async () => {
-  // Set the API key for the agents SDK
-  // The base URL is configured via OPENAI_BASE_URL environment variable
-  let apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+// Shared session service to persist sessions in memory across requests
+const sessionService = new InMemorySessionService();
+const APP_NAME = 'ForexBot';
 
-  if (!apiKey) {
-    console.log('No API key found, attempting to get GCP access token...');
-    try {
-      const auth = new GoogleAuth({
-        scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-      });
-      const client = await auth.getClient();
-      const tokenResponse = await client.getAccessToken();
-      apiKey = tokenResponse.token || undefined;
-      
-      console.log('apiKey', apiKey);
-      if (!apiKey) {
-        throw new Error('Failed to obtain GCP access token');
-      }
-      console.log('✓ Successfully obtained GCP access token');
-    } catch (error) {
-      console.error('Error obtaining GCP access token:', error);
-      throw new Error('GEMINI_API_KEY or OPENAI_API_KEY must be set, or GCP auth must be configured');
-    }
-  }
-
-  const customClient = new OpenAI({ baseURL: process.env.OPENAI_BASE_URL, apiKey: apiKey});
-  setDefaultOpenAIClient(customClient);
-  setDefaultOpenAIKey(apiKey);
-  setOpenAIAPI('chat_completions')
-};
-
-// Initialize orchestrator tools at startup
-let orchestratorTools: Tool[] = [];
-let analystAgentInstance: ReturnType<typeof createAnalystAgent> extends Promise<
-  infer T
->
-  ? T
-  : never;
-let executorAgentInstance: ReturnType<
-  typeof createExecutorAgent
-> extends Promise<infer T>
-  ? T
-  : never;
-
-const initializeTools = async () => {
-  try {
-    console.log('Initializing orchestrator tools...');
-
-    // Initialize the Analyst Agent
-    console.log('Initializing Analyst Agent...');
-    analystAgentInstance = await createAnalystAgent();
-
-    const analystAgentTool = await analystAgentInstance.asTool({
-      toolName: 'analyze_market',
-      toolDescription:
-        'Use this tool to analyze forex market conditions, chart patterns, and determine market bias. ' +
-        'Provide chart screenshots or describe market conditions. ' +
-        'Returns analysis with bias (BULLISH/BEARISH/NEUTRAL), confidence level, key support/resistance levels, and trading recommendations.',
-    });
-    orchestratorTools.push(analystAgentTool);
-    console.log('✓ Analyst Agent tool initialized successfully');
-
-    // Initialize the Executor Agent
-    console.log('Initializing Executor Agent...');
-    executorAgentInstance = await createExecutorAgent();
-
-    const executorAgentTool = await executorAgentInstance.asTool({
-      toolName: 'execute_browser_action',
-      toolDescription:
-        'Use this tool for browser automation and trade execution. ' +
-        'Can navigate to pages, take screenshots, and execute buy/sell trades on the broker platform. ' +
-        'Always use this after analysis confirms a trading signal.',
-    });
-    orchestratorTools.push(executorAgentTool);
-    console.log('✓ Executor Agent tool initialized successfully');
-
-    console.log(
-      `✓ All tools initialized. Total tools: ${orchestratorTools.length}`
-    );
-  } catch (error) {
-    console.error('Failed to initialize orchestrator tools:', error);
-    // Continue without tools rather than crashing the server
-    orchestratorTools = [];
-  }
-};
-
-// Start tool initialization immediately
-const toolsPromise = initializeTools();
-
-// Conversation history storage
-interface ConversationMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  sessionId: string;
-}
-
-// In-memory conversation history organized by session
-// (in production, consider using a database with session management)
-const conversationHistoryBySession = new Map<string, ConversationMessage[]>();
-
-// Limit history to prevent memory issues (keep last N messages per session)
-const MAX_HISTORY_LENGTH = 50;
-
-function addToHistory(
-  sessionId: string,
-  role: 'user' | 'assistant',
-  content: string
-) {
-  if (!conversationHistoryBySession.has(sessionId)) {
-    conversationHistoryBySession.set(sessionId, []);
-  }
-
-  const sessionHistory = conversationHistoryBySession.get(sessionId)!;
-
-  sessionHistory.push({
-    role,
-    content,
-    timestamp: new Date(),
-    sessionId,
+// Helper to run an agent and get the final text response
+async function runAgent(agent: any, input: string, sessionId: string) {
+  const runner = new Runner({
+    appName: APP_NAME,
+    agent,
+    sessionService
   });
 
-  // Trim history if it gets too long
-  if (sessionHistory.length > MAX_HISTORY_LENGTH) {
-    sessionHistory.splice(0, sessionHistory.length - MAX_HISTORY_LENGTH);
+  // Ensure session exists in the service
+  const session = await sessionService.getSession({
+    appName: APP_NAME,
+    userId: 'default-user',
+    sessionId: sessionId
+  });
+
+  if (!session) {
+    await sessionService.createSession({
+      appName: APP_NAME,
+      userId: 'default-user',
+      sessionId: sessionId
+    });
   }
-}
 
-function getConversationContext(sessionId: string): string {
-  const sessionHistory = conversationHistoryBySession.get(sessionId);
-
-  if (!sessionHistory || sessionHistory.length === 0) {
-    return '';
+  const events = runner.runAsync({
+    userId: 'default-user',
+    sessionId: sessionId,
+    newMessage: { parts: [{ text: input }] }
+  });
+  
+  let finalOutput = '';
+  for await (const event of events) {
+    const text = stringifyContent(event);
+    if (text) {
+      finalOutput = text; // In sequential agents, the last event with text is often what we want
+    }
   }
-
-  return (
-    sessionHistory.map((msg) => `${msg.role}: ${msg.content}`).join('\n') + '\n'
-  );
+  return finalOutput;
 }
 
 // Root endpoint
 app.get('/', (_req: Request, res: Response) => {
   res.json({
-    service: 'ForexAI Trading Agent',
-    version: '1.0.0',
+    service: 'ForexAI Trading Agent (Google ADK)',
+    version: '2.0.0',
     status: 'running',
     endpoints: {
       health: '/ping',
       chat: 'POST /invocations',
-      history: '/history?sessionId=<id>',
+      plan: 'POST /plan',
     },
   });
 });
 
 // Health check endpoint
 app.get('/ping', async (_req: Request, res: Response) => {
-  try {
-    const toolsInitialized = orchestratorTools.length > 0;
-    const analystAvailable = analystAgentInstance !== null;
-    const executorAvailable = executorAgentInstance !== null;
-
-    const isHealthy = toolsInitialized && analystAvailable && executorAvailable;
-
-    const status = isHealthy ? 'Healthy' : 'Unhealthy';
-    const statusCode = isHealthy ? 200 : 503;
-
-    res.status(statusCode).json({
-      status,
-      timestamp: new Date().toISOString(),
-      details: {
-        toolsInitialized,
-        toolCount: orchestratorTools.length,
-        analystAgentAvailable: analystAvailable,
-        executorAgentAvailable: executorAvailable,
-      },
-    });
-  } catch (error) {
-    res.status(503).json({
-      status: 'Unhealthy',
-      timestamp: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-// Get conversation history for a specific session
-app.get('/history', (req: Request, res: Response) => {
-  const { sessionId } = req.query;
-
-  if (!sessionId || typeof sessionId !== 'string') {
-    res.status(400).json({
-      error: 'sessionId query parameter is required and must be a string',
-    });
-    return;
-  }
-
-  const sessionHistory = conversationHistoryBySession.get(sessionId) || [];
-
   res.json({
-    sessionId,
-    history: sessionHistory,
-    count: sessionHistory.length,
+    status: 'Healthy',
+    timestamp: new Date().toISOString(),
+    framework: 'Google ADK',
   });
 });
 
-// Clear conversation history
-app.delete('/history', (req: Request, res: Response) => {
-  const { sessionId } = req.query;
-
-  if (sessionId && typeof sessionId === 'string') {
-    conversationHistoryBySession.delete(sessionId);
-    res.json({
-      message: `Conversation history cleared for session ${sessionId}`,
-    });
-  } else {
-    conversationHistoryBySession.clear();
-    res.json({ message: 'All conversation history cleared' });
-  }
-});
-
-// Main chat/invocation endpoint with SSE streaming
-app.post('/invocations', async (req: Request, res: Response) => {
-  console.log('🔍 [Main] POST /invocations request received');
-
-  const { message, sessionId } = req.body;
-
-  // Set up SSE headers early for consistent error responses
-  const sendSSEError = (errorMessage: string, statusCode: number = 400) => {
-    res.writeHead(statusCode, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control',
-    });
-    res.write(
-      `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
-    );
-    res.end();
-  };
-
-  // Validate message
-  if (!message || typeof message !== 'string') {
-    sendSSEError('Message is required and must be a string');
+// Daily Plan trigger endpoint
+app.post('/plan', async (req: Request, res: Response) => {
+  const { strategy_pdf_text, broker_url, sessionId = 'daily-plan-session' } = req.body;
+  
+  if (!strategy_pdf_text || !broker_url) {
+    res.status(400).json({ error: 'strategy_pdf_text and broker_url are required' });
     return;
   }
-
-  // Validate sessionId
-  if (!sessionId || typeof sessionId !== 'string') {
-    sendSSEError('sessionId is required and must be a string');
-    return;
-  }
-
-  // Get conversation context and add to user message
-  const conversationContext = getConversationContext(sessionId);
-  const contextualMessage = conversationContext
-    ? `Previous conversation:\n${conversationContext}\n\nCurrent message: ${message}`
-    : message;
-
-  // Add user message to history
-  addToHistory(sessionId, 'user', message);
-
-  // Set up SSE headers for streaming
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control',
-  });
 
   try {
-    // Ensure tools are initialized
-    await toolsPromise;
+    console.log('🚀 Starting Daily Planner sequence...');
+    // We pass a structured input string that the SequentialAgent's first sub-agent can parse
+    const input = JSON.stringify({ strategy_pdf_text, broker_url });
+    const result = await runAgent(dailyPlannerAgent, input, sessionId);
 
-    // Send connection confirmation
-    res.write(
-      `data: ${JSON.stringify({
-        type: 'connected',
-        message: 'ForexAI Agent connected successfully',
-      })}\n\n`
-    );
-
-    // Create orchestrator with available tools
-    const orchestrator = orchestratorAgent(orchestratorTools);
-
-    let assistantResponse = '';
-
-    await withTrace('ForexAI Orchestrator', async () => {
-      // Run the orchestrator
-      const orchestratorResult = await run(orchestrator, contextualMessage);
-
-      // Stream orchestrator steps
-      for (const item of orchestratorResult.newItems) {
-        if (item.type === 'message_output_item') {
-          const text = item.content;
-          if (text) {
-            res.write(
-              `data: ${JSON.stringify({ type: 'step', content: text })}\n\n`
-            );
-          }
-        }
-      }
-
-      // Synthesize the final response
-      const synthesizer = synthesizerAgent();
-      const synthesizerResult = await run(
-        synthesizer,
-        orchestratorResult.output
-      );
-
-      assistantResponse = (synthesizerResult.finalOutput ??
-        'No response generated') as string;
-
-      // Add to history
-      addToHistory(sessionId, 'assistant', assistantResponse);
-
-      // Send final result
-      res.write(
-        `data: ${JSON.stringify({
-          type: 'result',
-          content: assistantResponse,
-        })}\n\n`
-      );
-
-      // Send done event
-      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    res.json({
+      status: 'success',
+      result
     });
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error occurred';
-    console.error('Error in /invocations:', error);
+    console.error('Error running daily planner:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
 
-    addToHistory(sessionId, 'assistant', `Error: ${errorMessage}`);
-    res.write(
-      `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
-    );
-  } finally {
-    res.end();
+// Main chat/invocation endpoint
+app.post('/invocations', async (req: Request, res: Response) => {
+  const { message, sessionId = 'default-session', agentType } = req.body;
+
+  if (!message || typeof message !== 'string') {
+    res.status(400).json({ error: 'Message is required' });
+    return;
+  }
+
+  try {
+    let targetAgent;
+    switch (agentType) {
+      case 'executor':
+        targetAgent = executorAgent;
+        break;
+      case 'planner':
+        targetAgent = dailyPlannerAgent;
+        break;
+      default:
+        targetAgent = analystAgent;
+    }
+
+    console.log(`🤖 Running agent: ${targetAgent.name}`);
+    const result = await runAgent(targetAgent, message, sessionId);
+
+    res.json({
+      type: 'result',
+      content: result,
+      sessionId
+    });
+  } catch (error) {
+    console.error('Error in /invocations:', error);
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    });
   }
 });
 
 // Start server
 const startServer = async () => {
-  try {
-    // Configure Gemini client
-    await configureGeminiClient();
-
-    // Wait for tools to initialize before starting
-    await toolsPromise;
-
-    app.listen(port, () => {
-      console.log(`🚀 ForexAI Trading Agent Server listening on port ${port}`);
-      console.log(`   Health check: http://localhost:${port}/ping`);
-      console.log(
-        `   Chat endpoint: POST http://localhost:${port}/invocations`
-      );
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
+  app.listen(port, () => {
+    console.log(`🚀 ForexAI Trading Agent Server (ADK) listening on port ${port}`);
+  });
 };
 
 startServer();
 
-// Graceful shutdown handling
+// Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n${signal} received, starting graceful shutdown...`);
-
   try {
     await closeExecutorAgent();
-    console.log('✓ Executor Agent cleaned up successfully');
   } catch (error) {
     console.error('Error during cleanup:', error);
   }
-
   process.exit(0);
 };
 
