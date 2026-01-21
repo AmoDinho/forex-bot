@@ -35,15 +35,15 @@ RUN chown -R forexbot:nodejs /app
 USER forexbot
 
 # Expose the application port
-EXPOSE 8080
+EXPOSE 8090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ping || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8090/ping || exit 1
 
 # Set environment defaults
 ENV NODE_ENV=production
-ENV PORT=8080
+ENV PORT=8090
 
 # Start the application using tsx
 CMD ["yarn", "start"]

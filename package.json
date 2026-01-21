@@ -8,7 +8,10 @@
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
     "typecheck": "tsc",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "docker:up": "docker compose up -d",
+    "docker:dev": "docker compose --profile dev up",
+    "docker:down": "docker compose down"
   },
   "keywords": [
     "forex",
@@ -30,6 +33,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "google-auth-library": "^10.5.0",
     "zod": "^3.25.40"
   },
   "engines": {

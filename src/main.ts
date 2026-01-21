@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
-import { run, setDefaultOpenAIKey, withTrace, Tool } from '@openai/agents';
+import { OpenAI } from 'openai';
+import { run, setDefaultOpenAIKey, withTrace, Tool ,setOpenAIAPI, setDefaultOpenAIClient} from '@openai/agents';
+import { GoogleAuth } from 'google-auth-library';
 import {
   orchestratorAgent,
   synthesizerAgent,
@@ -11,21 +13,43 @@ import {
 import cors from 'cors';
 
 const app = express();
-const port = parseInt(process.env.PORT || '8080', 10);
+const port = parseInt(process.env.PORT || '8090', 10);
 
 // Add JSON body parsing middleware
 app.use(cors());
 app.use(express.json());
 
 // Configure OpenAI SDK to use Gemini via compatibility layer
-const configureGeminiClient = () => {
+const configureGeminiClient = async () => {
   // Set the API key for the agents SDK
   // The base URL is configured via OPENAI_BASE_URL environment variable
-  const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+  let apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY or OPENAI_API_KEY must be set');
+    console.log('No API key found, attempting to get GCP access token...');
+    try {
+      const auth = new GoogleAuth({
+        scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+      });
+      const client = await auth.getClient();
+      const tokenResponse = await client.getAccessToken();
+      apiKey = tokenResponse.token || undefined;
+      
+      console.log('apiKey', apiKey);
+      if (!apiKey) {
+        throw new Error('Failed to obtain GCP access token');
+      }
+      console.log('✓ Successfully obtained GCP access token');
+    } catch (error) {
+      console.error('Error obtaining GCP access token:', error);
+      throw new Error('GEMINI_API_KEY or OPENAI_API_KEY must be set, or GCP auth must be configured');
+    }
   }
+
+  const customClient = new OpenAI({ baseURL: process.env.OPENAI_BASE_URL, apiKey: apiKey});
+  setDefaultOpenAIClient(customClient);
   setDefaultOpenAIKey(apiKey);
+  setOpenAIAPI('chat_completions')
 };
 
 // Initialize orchestrator tools at startup
@@ -343,7 +367,7 @@ app.post('/invocations', async (req: Request, res: Response) => {
 const startServer = async () => {
   try {
     // Configure Gemini client
-    configureGeminiClient();
+    await configureGeminiClient();
 
     // Wait for tools to initialize before starting
     await toolsPromise;
