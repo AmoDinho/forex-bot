@@ -82,4 +82,5 @@ export const dailyPlannerAgent = new SequentialAgent({
     strategyAnalystAgent,
     dbPersisterAgent,
   ],
+  
 });

@@ -17,7 +17,7 @@ const sessionService = new InMemorySessionService();
 const APP_NAME = 'ForexBot';
 
 // Helper to run an agent and get the final text response
-async function runAgent(agent: any, input: string, sessionId: string, stateDelta?: Record<string, any>) {
+async function runAgent(agent: any, input: string, sessionId: string, stateDelta?: Record<string, any>, templateData?: Record<string, any>) {
   const runner = new Runner({
     appName: APP_NAME,
     agent,
@@ -49,7 +49,8 @@ async function runAgent(agent: any, input: string, sessionId: string, stateDelta
     userId: 'default-user',
     sessionId: sessionId,
     newMessage: { parts: [{ text: input }] },
-    ...(stateDelta ? { stateDelta } : {})
+    ...(stateDelta ? { stateDelta } : {}),
+    ...(templateData ? { templateData } : {})
   });
   
   let finalOutput = '';
@@ -133,6 +134,10 @@ app.post('/plan', async (req: Request, res: Response) => {
       strategy_pdf_text,
       broker_url,
       morning_chart_image: 'morning_chart.png' // Provide a default if not set yet
+    }, {
+      strategy_pdf_text,
+      broker_url,
+      morning_chart_image: 'morning_chart.png'
     });
 
     res.json({
