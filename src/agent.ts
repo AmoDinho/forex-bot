@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
-import { dailyPlannerAgent } from './agents/planner.agent';
-import { analystAgent } from './agents/analyst.agent';
-import { executorAgent, closeExecutorAgent } from './agents/executor.agent';
+import { dailyPlannerAgent } from './agents/planner.agent.js';
+import { analystAgent } from './agents/analyst.agent.js';
+import { executorAgent, closeExecutorAgent } from './agents/executor.agent.js';
 import cors from 'cors';
-import { Runner, stringifyContent, InMemorySessionService } from '@google/adk';
+import { Runner, stringifyContent, InMemorySessionService, getFunctionCalls, getFunctionResponses } from '@google/adk';
 
 const app = express();
 const port = parseInt(process.env.PORT || '8090', 10);
@@ -19,7 +19,6 @@ const APP_NAME = 'ForexBot';
 // Helper to run an agent and get the final text response
 async function runAgent(agent: any, input: string, sessionId: string, stateDelta?: Record<string, any>) {
   const runner = new Runner({
-    
     appName: APP_NAME,
     agent,
     sessionService
@@ -40,23 +39,60 @@ async function runAgent(agent: any, input: string, sessionId: string, stateDelta
     });
   }
 
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`▶ Starting agent: ${agent.name}`);
+  console.log(`  Session: ${sessionId}`);
+  console.log(`  Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`);
+  console.log(`${'='.repeat(60)}`);
+
   const events = runner.runAsync({
     userId: 'default-user',
     sessionId: sessionId,
     newMessage: { parts: [{ text: input }] },
-    stateDelta
+    ...(stateDelta ? { stateDelta } : {})
   });
   
   let finalOutput = '';
+  let eventCount = 0;
+  
   for await (const event of events) {
+    eventCount++;
+    const author = event.author || 'unknown';
+    
+    // Log tool/function calls
+    const functionCalls = getFunctionCalls(event);
+    if (functionCalls.length > 0) {
+      for (const call of functionCalls) {
+        console.log(`\n🔧 [${author}] TOOL CALL: ${call.name}`);
+        console.log(`   Args: ${JSON.stringify(call.args, null, 2).substring(0, 200)}`);
+      }
+    }
+    
+    // Log tool/function responses
+    const functionResponses = getFunctionResponses(event);
+    if (functionResponses.length > 0) {
+      for (const resp of functionResponses) {
+        const respStr = JSON.stringify(resp.response, null, 2);
+        console.log(`\n✅ [${author}] TOOL RESPONSE: ${resp.name}`);
+        console.log(`   Result: ${respStr.substring(0, 300)}${respStr.length > 300 ? '...' : ''}`);
+      }
+    }
+    
+    // Log text output
     const text = stringifyContent(event);
     if (text) {
-      finalOutput = text; // In sequential agents, the last event with text is often what we want
+      console.log(`\n💬 [${author}] TEXT OUTPUT:`);
+      console.log(`   ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`);
+      finalOutput = text;
     }
   }
+  
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`✓ Agent ${agent.name} completed (${eventCount} events)`);
+  console.log(`${'='.repeat(60)}\n`);
+  
   return finalOutput;
 }
-
 // Root endpoint
 app.get('/', (_req: Request, res: Response) => {
   res.json({
@@ -172,3 +208,4 @@ const gracefulShutdown = async (signal: string) => {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+

@@ -1,5 +1,5 @@
 import { LlmAgent, SequentialAgent, MCPToolset } from '@google/adk';
-import { dbWriterTool } from '../tools/forex.tools';
+import { dbWriterTool } from '../tools/forex.tools.js';
 import { z } from 'zod';
 
 /**

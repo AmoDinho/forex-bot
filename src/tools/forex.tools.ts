@@ -1,6 +1,6 @@
 import { FunctionTool } from '@google/adk';
 import { z } from 'zod';
-import { query } from '../database/client';
+import { query } from '../database/client.js';
 
 /**
  * Tool to save the daily trading plan to the database
