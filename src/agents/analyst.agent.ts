@@ -1,5 +1,6 @@
 import { Agent, MCPServerStdio } from '@openai/agents';
 import { analystSystemContext } from '../prompts';
+import { ModelName, DEFAULT_MODEL } from '../utils';
 
 // MCP Server instance - managed externally for lifecycle control
 let playwrightMcpServer: MCPServerStdio | null = null;
@@ -56,13 +57,15 @@ export function getPlaywrightMcp(): MCPServerStdio {
  * Create the Analyst Agent
  * The agent uses the Playwright MCP server for browser automation
  * to navigate websites and analyze forex markets
+ *
+ * @param model - The model to use for this agent (defaults to DEFAULT_MODEL)
  */
-export function analystAgent(): Agent {
+export function analystAgent(model: ModelName = DEFAULT_MODEL): Agent {
   const mcpServer = getPlaywrightMcp();
 
   return new Agent({
     name: 'forex_analyst_agent',
-    model: 'gpt-4o',
+    model: model,
     instructions: analystSystemContext,
     mcpServers: [mcpServer],
   });
@@ -71,8 +74,12 @@ export function analystAgent(): Agent {
 /**
  * Create and return an Analyst Agent instance
  * This is an async factory that ensures MCP is initialized
+ *
+ * @param model - The model to use for this agent (defaults to DEFAULT_MODEL)
  */
-export async function createAnalystAgent(): Promise<Agent> {
+export async function createAnalystAgent(
+  model: ModelName = DEFAULT_MODEL
+): Promise<Agent> {
   await initPlaywrightMcp();
-  return analystAgent();
+  return analystAgent(model);
 }
