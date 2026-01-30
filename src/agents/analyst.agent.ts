@@ -18,7 +18,8 @@ export async function initPlaywrightMcp(): Promise<MCPServerStdio> {
 
   playwrightMcpServer = new MCPServerStdio({
     name: 'Playwright MCP Server',
-    fullCommand: 'npx @playwright/mcp@latest',
+    fullCommand:
+      'npx @playwright/mcp@latest --user-data-dir=../../my-mcp-session',
   });
 
   await playwrightMcpServer.connect();
@@ -47,7 +48,7 @@ export async function closePlaywrightMcp(): Promise<void> {
 export function getPlaywrightMcp(): MCPServerStdio {
   if (!playwrightMcpServer) {
     throw new Error(
-      'Playwright MCP server not initialized. Call initPlaywrightMcp() first.'
+      'Playwright MCP server not initialized. Call initPlaywrightMcp() first.',
     );
   }
   return playwrightMcpServer;
@@ -78,7 +79,7 @@ export function analystAgent(model: ModelName = DEFAULT_MODEL): Agent {
  * @param model - The model to use for this agent (defaults to DEFAULT_MODEL)
  */
 export async function createAnalystAgent(
-  model: ModelName = DEFAULT_MODEL
+  model: ModelName = DEFAULT_MODEL,
 ): Promise<Agent> {
   await initPlaywrightMcp();
   return analystAgent(model);
