@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
-import { run, setDefaultOpenAIKey } from '@openai/agents';
+import { run, setDefaultOpenAIKey, withTrace, Tool } from '@openai/agents';
 import {
   createAnalystAgent,
   closePlaywrightMcp,
   initPlaywrightMcp,
-} from './agents/index.js';
+  orchestratorAgent,
+  synthesizerAgent,
+} from './agents';
 import cors from 'cors';
 
 const app = express();
@@ -15,33 +17,43 @@ const port = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
-// Store agent instance
-let analystAgentInstance: Awaited<
-  ReturnType<typeof createAnalystAgent>
-> | null = null;
+// Initialize orchestrator tools at startup
+let orchestratorTools: Tool[] = [];
+let analystAgentInstance: Awaited<ReturnType<typeof createAnalystAgent>> | null =
+  null;
 
 /**
- * Initialize the analyst agent with MCP server
+ * Initialize all agents and tools
  */
-const initializeAgent = async () => {
+const initializeTools = async () => {
   try {
-    console.log('Initializing Analyst Agent...');
+    console.log('Initializing orchestrator tools...');
 
     // Initialize MCP server first
     await initPlaywrightMcp();
 
-    // Create the analyst agent
+    // Initialize the analyst agent
+    console.log('Initializing Analyst Agent...');
     analystAgentInstance = await createAnalystAgent();
 
-    console.log('✓ Analyst Agent initialized successfully');
+    // Convert analyst agent to a tool for the orchestrator
+    const analystTool = await analystAgentInstance.asTool({
+      toolName: 'analyze_forex_market',
+      toolDescription:
+        'Use this tool to analyze forex markets. The analyst can navigate to financial websites, view charts, and provide technical analysis including market bias, key support/resistance levels, and trading recommendations. Provide clear instructions about which currency pair to analyze and any specific requirements.',
+    });
+    orchestratorTools.push(analystTool);
+
+    console.log('✓ Analyst Agent tool initialized successfully');
+    console.log(`✓ Orchestrator initialized with ${orchestratorTools.length} tool(s)`);
   } catch (error) {
-    console.error('Failed to initialize Analyst Agent:', error);
-    analystAgentInstance = null;
+    console.error('Failed to initialize orchestrator tools:', error);
+    orchestratorTools = [];
   }
 };
 
-// Start agent initialization immediately
-const agentPromise = initializeAgent();
+// Start tool initialization immediately
+const toolsPromise = initializeTools();
 
 // Conversation history storage
 interface ConversationMessage {
@@ -59,7 +71,7 @@ const MAX_HISTORY_LENGTH = 50;
 function addToHistory(
   sessionId: string,
   role: 'user' | 'assistant',
-  content: string,
+  content: string
 ) {
   if (!conversationHistoryBySession.has(sessionId)) {
     conversationHistoryBySession.set(sessionId, []);
@@ -94,7 +106,7 @@ function getConversationContext(sessionId: string): string {
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
   res.json({
-    name: 'ForexAI Analyst Agent',
+    name: 'ForexAI Trading Agent',
     version: '1.0.0',
     status: 'running',
     endpoints: {
@@ -109,8 +121,10 @@ app.get('/', (req: Request, res: Response) => {
 // Health check endpoint
 app.get('/ping', async (req: Request, res: Response) => {
   try {
-    const agentAvailable = analystAgentInstance !== null;
-    const isHealthy = agentAvailable;
+    const toolsInitialized = orchestratorTools.length > 0;
+    const analystAgentAvailable = analystAgentInstance !== null;
+    const isHealthy = toolsInitialized && analystAgentAvailable;
+
     const status = isHealthy ? 'Healthy' : 'Unhealthy';
     const statusCode = isHealthy ? 200 : 503;
 
@@ -118,7 +132,9 @@ app.get('/ping', async (req: Request, res: Response) => {
       status,
       timestamp: new Date().toISOString(),
       details: {
-        analystAgentAvailable: agentAvailable,
+        toolsInitialized,
+        toolCount: orchestratorTools.length,
+        analystAgentAvailable,
       },
     });
   } catch (error) {
@@ -167,16 +183,16 @@ app.delete('/history', (req: Request, res: Response) => {
 
 /**
  * Main analysis endpoint
- * Accepts a prompt to analyze a currency pair
+ * Uses orchestrator -> analyst -> synthesizer pattern
  *
  * Example request body:
  * {
- *   "message": "Go to TradingView and analyze EURUSD on the 4H timeframe",
+ *   "message": "Analyze EURUSD on the 4H timeframe",
  *   "sessionId": "session-123"
  * }
  */
 app.post('/analyze', async (req: Request, res: Response) => {
-  console.log('📊 [Analyst] POST /analyze request received');
+  console.log('📊 [Orchestrator] POST /analyze request received');
 
   const { message, sessionId } = req.body;
 
@@ -207,7 +223,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
       `data: ${JSON.stringify({
         type: 'error',
         content: 'OPENAI_API_KEY environment variable is not set',
-      })}\n\n`,
+      })}\n\n`
     );
     res.end();
     return;
@@ -216,15 +232,15 @@ app.post('/analyze', async (req: Request, res: Response) => {
   setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
   try {
-    // Wait for agent to be initialized
-    await agentPromise;
+    // Wait for tools to be initialized
+    await toolsPromise;
 
-    if (!analystAgentInstance) {
+    if (orchestratorTools.length === 0) {
       res.write(
         `data: ${JSON.stringify({
           type: 'error',
-          content: 'Analyst agent is not available. Please try again later.',
-        })}\n\n`,
+          content: 'Orchestrator tools not available. Please try again later.',
+        })}\n\n`
       );
       res.end();
       return;
@@ -234,9 +250,9 @@ app.post('/analyze', async (req: Request, res: Response) => {
     res.write(
       `data: ${JSON.stringify({
         type: 'connected',
-        message: 'Analyst agent connected',
+        message: 'Agent connected successfully',
         sessionId: currentSessionId,
-      })}\n\n`,
+      })}\n\n`
     );
 
     // Build context with conversation history
@@ -248,46 +264,66 @@ app.post('/analyze', async (req: Request, res: Response) => {
     // Add user message to history
     addToHistory(currentSessionId, 'user', message);
 
-    // Send processing event
-    res.write(
-      `data: ${JSON.stringify({
-        type: 'processing',
-        message: 'Analyzing market...',
-      })}\n\n`,
-    );
+    let assistantResponse: string = '';
 
-    // Run the analyst agent
-    const result = await run(analystAgentInstance, contextualMessage);
+    await withTrace('ForexAI Analysis', async () => {
+      // Send orchestrator processing event
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'processing',
+          message: 'Orchestrator coordinating analysis...',
+        })}\n\n`
+      );
 
-    // Process result items for streaming updates
-    for (const item of result.newItems) {
-      if (item.type === 'message_output_item') {
-        const text = item.content;
-        if (text) {
-          res.write(
-            `data: ${JSON.stringify({ type: 'step', content: text })}\n\n`,
-          );
+      // Step 1: Run the orchestrator with available tools
+      const orchestratorInstance = orchestratorAgent(orchestratorTools);
+      const orchestratorResult = await run(orchestratorInstance, contextualMessage);
+
+      // Stream orchestrator steps
+      for (const item of orchestratorResult.newItems) {
+        if (item.type === 'message_output_item') {
+          const text = item.content;
+          if (text) {
+            res.write(
+              `data: ${JSON.stringify({ type: 'step', content: text })}\n\n`
+            );
+          }
         }
       }
-    }
 
-    const finalOutput = (result.finalOutput ??
-      'No analysis generated') as string;
+      // Send synthesizer processing event
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'processing',
+          message: 'Synthesizing results...',
+        })}\n\n`
+      );
 
-    // Add assistant response to history
-    addToHistory(currentSessionId, 'assistant', finalOutput);
+      // Step 2: Run the synthesizer to format the final output
+      const synthesizerInstance = synthesizerAgent();
+      const synthesizerResult = await run(
+        synthesizerInstance,
+        orchestratorResult.output
+      );
 
-    // Send final result
-    res.write(
-      `data: ${JSON.stringify({
-        type: 'result',
-        content: finalOutput,
-        sessionId: currentSessionId,
-      })}\n\n`,
-    );
+      assistantResponse = (synthesizerResult.finalOutput ??
+        'No response generated') as string;
 
-    // Send done event
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+      // Add assistant response to history
+      addToHistory(currentSessionId, 'assistant', assistantResponse);
+
+      // Send final result
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'result',
+          content: assistantResponse,
+          sessionId: currentSessionId,
+        })}\n\n`
+      );
+
+      // Send done event
+      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
@@ -297,7 +333,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
     addToHistory(currentSessionId, 'assistant', `Error: ${errorMessage}`);
 
     res.write(
-      `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`,
+      `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
     );
   } finally {
     res.end();
@@ -306,7 +342,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`🤖 ForexAI Analyst Agent Server listening on port ${port}`);
+  console.log(`🤖 ForexAI Trading Agent Server listening on port ${port}`);
   console.log(`   Health check: http://localhost:${port}/ping`);
   console.log(`   Analyze: POST http://localhost:${port}/analyze`);
 });
