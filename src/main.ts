@@ -16,8 +16,9 @@ app.use(cors());
 app.use(express.json());
 
 // Store agent instance
-let analystAgentInstance: Awaited<ReturnType<typeof createAnalystAgent>> | null =
-  null;
+let analystAgentInstance: Awaited<
+  ReturnType<typeof createAnalystAgent>
+> | null = null;
 
 /**
  * Initialize the analyst agent with MCP server
@@ -58,7 +59,7 @@ const MAX_HISTORY_LENGTH = 50;
 function addToHistory(
   sessionId: string,
   role: 'user' | 'assistant',
-  content: string
+  content: string,
 ) {
   if (!conversationHistoryBySession.has(sessionId)) {
     conversationHistoryBySession.set(sessionId, []);
@@ -206,7 +207,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
       `data: ${JSON.stringify({
         type: 'error',
         content: 'OPENAI_API_KEY environment variable is not set',
-      })}\n\n`
+      })}\n\n`,
     );
     res.end();
     return;
@@ -223,7 +224,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
         `data: ${JSON.stringify({
           type: 'error',
           content: 'Analyst agent is not available. Please try again later.',
-        })}\n\n`
+        })}\n\n`,
       );
       res.end();
       return;
@@ -235,7 +236,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
         type: 'connected',
         message: 'Analyst agent connected',
         sessionId: currentSessionId,
-      })}\n\n`
+      })}\n\n`,
     );
 
     // Build context with conversation history
@@ -252,7 +253,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
       `data: ${JSON.stringify({
         type: 'processing',
         message: 'Analyzing market...',
-      })}\n\n`
+      })}\n\n`,
     );
 
     // Run the analyst agent
@@ -264,13 +265,14 @@ app.post('/analyze', async (req: Request, res: Response) => {
         const text = item.content;
         if (text) {
           res.write(
-            `data: ${JSON.stringify({ type: 'step', content: text })}\n\n`
+            `data: ${JSON.stringify({ type: 'step', content: text })}\n\n`,
           );
         }
       }
     }
 
-    const finalOutput = (result.finalOutput ?? 'No analysis generated') as string;
+    const finalOutput = (result.finalOutput ??
+      'No analysis generated') as string;
 
     // Add assistant response to history
     addToHistory(currentSessionId, 'assistant', finalOutput);
@@ -281,7 +283,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
         type: 'result',
         content: finalOutput,
         sessionId: currentSessionId,
-      })}\n\n`
+      })}\n\n`,
     );
 
     // Send done event
@@ -295,7 +297,7 @@ app.post('/analyze', async (req: Request, res: Response) => {
     addToHistory(currentSessionId, 'assistant', `Error: ${errorMessage}`);
 
     res.write(
-      `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+      `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`,
     );
   } finally {
     res.end();

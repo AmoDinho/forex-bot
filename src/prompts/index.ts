@@ -1,1 +1,1 @@
-export { analystPrompt, analystSystemContext } from './analyst.prompt.js';
+export { analystPrompt, analystSystemContext } from './analyst.prompt';

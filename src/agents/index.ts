@@ -4,4 +4,4 @@ export {
   initPlaywrightMcp,
   closePlaywrightMcp,
   getPlaywrightMcp,
-} from './analyst.agent.js';
+} from './analyst.agent';

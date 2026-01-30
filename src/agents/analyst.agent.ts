@@ -1,5 +1,5 @@
 import { Agent, MCPServerStdio } from '@openai/agents';
-import { analystSystemContext } from '../prompts/index.js';
+import { analystSystemContext } from '../prompts';
 
 // MCP Server instance - managed externally for lifecycle control
 let playwrightMcpServer: MCPServerStdio | null = null;
