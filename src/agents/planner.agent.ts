@@ -18,11 +18,11 @@ const chartCaptureAgent = new LlmAgent({
   name: 'ChartScraper',
   model: 'gemini-1.5-flash',
   tools: [playwrightToolset],
-  
+
   instruction: `
     Your goal is to capture a high-timeframe screenshot of the market chart.
     
-    1. Navigate to the broker URL provided: {{broker_url}}
+    1. Navigate to the broker URL provided: https://www.livecharts.co.uk/ForexCharts/eurusd.php
     2. Wait for the chart to load completely.
     3. Take a screenshot of the page.
     4. Respond with the path or confirmation that the screenshot was taken.
@@ -43,8 +43,8 @@ const strategyAnalystAgent = new LlmAgent({
     You are a Master Forex Strategist.
     
     CONTEXT:
-    1. Strategy PDF Rules: {{strategy_pdf_text}}
-    2. Morning Chart Screenshot: {{morning_chart_image}} (Analyze the visual data from the chart)
+    1. Strategy PDF Rules: {strategy_pdf_text}
+    2. Morning Chart Screenshot: {morning_chart_image} (Analyze the visual data from the chart)
     
     TASK:
     Analyze the chart based strictly on the PDF rules provided in the context.
@@ -77,10 +77,5 @@ export const dailyPlannerAgent = new SequentialAgent({
   name: 'DailyPlanner',
   description: 'Strict linear sequence to establish daily trading bias.',
 
-  subAgents: [
-    chartCaptureAgent,
-    strategyAnalystAgent,
-    dbPersisterAgent,
-  ],
-  
+  subAgents: [strategyAnalystAgent],
 });

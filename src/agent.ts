@@ -4,7 +4,13 @@ import { dailyPlannerAgent } from './agents/planner.agent.js';
 import { analystAgent } from './agents/analyst.agent.js';
 import { executorAgent, closeExecutorAgent } from './agents/executor.agent.js';
 import cors from 'cors';
-import { Runner, stringifyContent, InMemorySessionService, getFunctionCalls, getFunctionResponses } from '@google/adk';
+import {
+  Runner,
+  stringifyContent,
+  InMemorySessionService,
+  getFunctionCalls,
+  getFunctionResponses,
+} from '@google/adk';
 
 const app = express();
 const port = parseInt(process.env.PORT || '8090', 10);
@@ -17,32 +23,40 @@ const sessionService = new InMemorySessionService();
 const APP_NAME = 'ForexBot';
 
 // Helper to run an agent and get the final text response
-async function runAgent(agent: any, input: string, sessionId: string, stateDelta?: Record<string, any>, templateData?: Record<string, any>) {
+async function runAgent(
+  agent: any,
+  input: string,
+  sessionId: string,
+  stateDelta?: Record<string, any>,
+  templateData?: Record<string, any>,
+) {
   const runner = new Runner({
     appName: APP_NAME,
     agent,
-    sessionService
+    sessionService,
   });
 
   // Ensure session exists in the service
   const session = await sessionService.getSession({
     appName: APP_NAME,
     userId: 'default-user',
-    sessionId: sessionId
+    sessionId: sessionId,
   });
 
   if (!session) {
     await sessionService.createSession({
       appName: APP_NAME,
       userId: 'default-user',
-      sessionId: sessionId
+      sessionId: sessionId,
     });
   }
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`▶ Starting agent: ${agent.name}`);
   console.log(`  Session: ${sessionId}`);
-  console.log(`  Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`);
+  console.log(
+    `  Input: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`,
+  );
   console.log(`${'='.repeat(60)}`);
 
   const events = runner.runAsync({
@@ -50,48 +64,54 @@ async function runAgent(agent: any, input: string, sessionId: string, stateDelta
     sessionId: sessionId,
     newMessage: { parts: [{ text: input }] },
     ...(stateDelta ? { stateDelta } : {}),
-    ...(templateData ? { templateData } : {})
+    ...(templateData ? { templateData } : {}),
   });
-  
+
   let finalOutput = '';
   let eventCount = 0;
-  
+
   for await (const event of events) {
     eventCount++;
     const author = event.author || 'unknown';
-    
+
     // Log tool/function calls
     const functionCalls = getFunctionCalls(event);
     if (functionCalls.length > 0) {
       for (const call of functionCalls) {
         console.log(`\n🔧 [${author}] TOOL CALL: ${call.name}`);
-        console.log(`   Args: ${JSON.stringify(call.args, null, 2).substring(0, 200)}`);
+        console.log(
+          `   Args: ${JSON.stringify(call.args, null, 2).substring(0, 200)}`,
+        );
       }
     }
-    
+
     // Log tool/function responses
     const functionResponses = getFunctionResponses(event);
     if (functionResponses.length > 0) {
       for (const resp of functionResponses) {
         const respStr = JSON.stringify(resp.response, null, 2);
         console.log(`\n✅ [${author}] TOOL RESPONSE: ${resp.name}`);
-        console.log(`   Result: ${respStr.substring(0, 300)}${respStr.length > 300 ? '...' : ''}`);
+        console.log(
+          `   Result: ${respStr.substring(0, 300)}${respStr.length > 300 ? '...' : ''}`,
+        );
       }
     }
-    
+
     // Log text output
     const text = stringifyContent(event);
     if (text) {
       console.log(`\n💬 [${author}] TEXT OUTPUT:`);
-      console.log(`   ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`);
+      console.log(
+        `   ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`,
+      );
       finalOutput = text;
     }
   }
-  
+
   console.log(`\n${'='.repeat(60)}`);
   console.log(`✓ Agent ${agent.name} completed (${eventCount} events)`);
   console.log(`${'='.repeat(60)}\n`);
-  
+
   return finalOutput;
 }
 // Root endpoint
@@ -119,10 +139,16 @@ app.get('/ping', async (_req: Request, res: Response) => {
 
 // Daily Plan trigger endpoint
 app.post('/plan', async (req: Request, res: Response) => {
-  const { strategy_pdf_text, broker_url, sessionId = 'daily-plan-session' } = req.body;
-  
+  const {
+    strategy_pdf_text,
+    broker_url,
+    sessionId = 'daily-plan-session',
+  } = req.body;
+
   if (!strategy_pdf_text || !broker_url) {
-    res.status(400).json({ error: 'strategy_pdf_text and broker_url are required' });
+    res
+      .status(400)
+      .json({ error: 'strategy_pdf_text and broker_url are required' });
     return;
   }
 
@@ -130,25 +156,31 @@ app.post('/plan', async (req: Request, res: Response) => {
     console.log('🚀 Starting Daily Planner sequence...');
     // We pass a structured input string that the SequentialAgent's first sub-agent can parse
     const input = JSON.stringify({ strategy_pdf_text, broker_url });
-    const result = await runAgent(dailyPlannerAgent, input, sessionId, {
-      strategy_pdf_text,
-      broker_url,
-      morning_chart_image: 'morning_chart.png' // Provide a default if not set yet
-    }, {
-      strategy_pdf_text,
-      broker_url,
-      morning_chart_image: 'morning_chart.png'
-    });
+    const result = await runAgent(
+      dailyPlannerAgent,
+      input,
+      sessionId,
+      {
+        strategy_pdf_text,
+        broker_url,
+        morning_chart_image: 'morning_chart.png', // Provide a default if not set yet
+      },
+      {
+        strategy_pdf_text,
+        broker_url,
+        morning_chart_image: 'morning_chart.png',
+      },
+    );
 
     res.json({
       status: 'success',
-      result
+      result,
     });
   } catch (error) {
     console.error('Error running daily planner:', error);
-    res.status(500).json({ 
-      status: 'error', 
-      message: error instanceof Error ? error.message : String(error) 
+    res.status(500).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -181,12 +213,12 @@ app.post('/invocations', async (req: Request, res: Response) => {
     res.json({
       type: 'result',
       content: result,
-      sessionId
+      sessionId,
     });
   } catch (error) {
     console.error('Error in /invocations:', error);
-    res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -194,7 +226,9 @@ app.post('/invocations', async (req: Request, res: Response) => {
 // Start server
 const startServer = async () => {
   app.listen(port, () => {
-    console.log(`🚀 ForexAI Trading Agent Server (ADK) listening on port ${port}`);
+    console.log(
+      `🚀 ForexAI Trading Agent Server (ADK) listening on port ${port}`,
+    );
   });
 };
 
@@ -213,4 +247,3 @@ const gracefulShutdown = async (signal: string) => {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
