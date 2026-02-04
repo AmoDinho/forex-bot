@@ -138,3 +138,5 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 my-mcp-session/
+# Browser session data
+browser-data/
