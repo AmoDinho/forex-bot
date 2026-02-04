@@ -3,6 +3,7 @@
  */
 export enum ModelName {
   GPT_5_NANO = 'gpt-5-nano',
+  GPT_5_MINI = 'gpt-5-mini',
   GPT_4O = 'gpt-4o',
   GPT_4O_MINI = 'gpt-4o-mini',
   GPT_4_TURBO = 'gpt-4-turbo',
@@ -26,6 +27,12 @@ export const modelConfig: Record<
   [ModelName.GPT_5_NANO]: {
     name: 'gpt-5-nano',
     description: 'Lightweight GPT-5 model optimized for speed and efficiency',
+    contextWindow: 128000,
+    supportsVision: true,
+  },
+  [ModelName.GPT_5_MINI]: {
+    name: 'gpt-5-mini',
+    description: 'Balanced GPT-5 model with excellent cost-performance ratio',
     contextWindow: 128000,
     supportsVision: true,
   },
@@ -70,4 +77,4 @@ export const modelConfig: Record<
 /**
  * Default model for agents
  */
-export const DEFAULT_MODEL = ModelName.GPT_5_NANO;
+export const DEFAULT_MODEL = ModelName.GPT_5_MINI;
